@@ -56,15 +56,13 @@ int main(int argc, char * argv[])
         }
 
         printf("%s", buf);
-        printf("%s\n", path);
-        printf("%s\n", fd);
     }
 
     if (print_taskcputime) {
         char buf[BUF_LEN];
-
+	strcpy(buf, path);
         if (ioctl(fd, IOCTL_GET_TASK_CPUTIME, buf) != 0) {
-            printf("Cannot get struct pci_dev for path %s\n", path);
+            printf("Cannot get struct task_cputime_atomic for path %s\n", path);
             return -1;
         }
 

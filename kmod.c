@@ -16,6 +16,9 @@
 #include <linux/pid.h>
 #include <linux/vmalloc.h>
 #include <linux/fs.h>
+#include <linux/sched/signal.h>
+#include <linux/sched/cputime.h>
+#include <linux/types.h>
 #include "kmod.h"
 
 MODULE_LICENSE("GPL");
@@ -88,10 +91,10 @@ static long device_ioctl(
             }
             memset(buffer, 0, BUF_LEN);
             if (vma){
-        	len_sock += sprintf(buffer + len_sock, "The beginning of the memory area: %s\n", vma->vm_end);
-        	len_sock += sprintf(buffer + len_sock, "The end of the memory area: %d\n", vma->vm_end);
-        	len_sock += sprintf(buffer + len_sock, "Flags: %d\n", vma->vm_flags);
-        	len_sock += sprintf(buffer + len_sock, "Offset (within vm_file): %d\n\n", vma->vm_pgoff);
+        	len_sock += sprintf(buffer + len_sock, "The beginning of the memory area: %li\n", vma->vm_end);
+        	len_sock += sprintf(buffer + len_sock, "The end of the memory area: %li\n", vma->vm_end);
+        	len_sock += sprintf(buffer + len_sock, "Flags: %li\n", vma->vm_flags);
+        	len_sock += sprintf(buffer + len_sock, "Offset (within vm_file): %li\n\n", vma->vm_pgoff);
         	if (len_sock>= 90000) return 0;
     	   }
 
@@ -104,19 +107,35 @@ static long device_ioctl(
 
         case IOCTL_GET_TASK_CPUTIME: {
 
-            static struct pci_dev *dev2;
-            char buf2[BUF_LEN];
+            copy_from_user(path_arg, tmp, BUF_LEN);
+            int pid_value;
+            len_sock = 0;
 
-            while ((dev2 = pci_get_device(PCI_ANY_ID, PCI_ANY_ID, dev2))) {
-                len += sprintf(buf2 + len, "pci_dev: Device_ID %d\n", dev2->devfn);
-                len += sprintf(buf2 + len, "pci_dev: Class: %x\n", dev2->class);
-                len += sprintf(buf2 + len, "pci_dev: Bus_MSP: %x\n", dev2->bus->max_bus_speed);
-                len += sprintf(buf2 + len, "pci_dev: Bus_NUM: %d\n\n", dev2->bus->number);
-                len += sprintf(buf2 + len, "pci_dev: Vendor_ID: %hu\n\n", dev2->vendor);
-                if (len>= 90000) break;
+            if(kstrtoint(path_arg, 10, &pid_value) != 0)
+                 return -1;
+
+            struct task_struct* ts = get_pid_task(find_get_pid(pid_value), PIDTYPE_PID);
+            if(ts == NULL){
+                copy_to_user(arg, "Pid is incorrect\n", 17);
+                return 0;
             }
+            struct thread_group_cputimer *tgc = get_running_cputimer(ts);
+            if(tgc == NULL){
+                copy_to_user(arg, "Can't get thread_group_cputimer\n", 32);
+                return 0;
+            }
+            memset(buffer, 0, BUF_LEN);
+            if (tgc){
+        	len_sock += sprintf(buffer + len_sock, "Utime: %li\n", tgc->cputime_atomic.utime);
+        	len_sock += sprintf(buffer + len_sock, "Stime: %li\n", tgc->cputime_atomic.stime);
+        	len_sock += sprintf(buffer + len_sock, "Sum. Exec. Time: %li\n\n", tgc->cputime_atomic.sum_exec_runtime);
+        	if (len_sock>= 90000) return 0;
+    	   }
 
-            copy_to_user(arg, buf2, len);
+            if(buffer[0] == NULL) len_sock = sprintf(buffer, "no vm\n");
+
+
+            copy_to_user(arg, buffer, len_sock);
 
             break;
         }
