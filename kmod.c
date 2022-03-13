@@ -42,20 +42,6 @@ static int device_release(struct inode *inode, struct file *file) {
     return 0;
 }
 
-static int ittr_files(const void *v, struct file *file, unsigned n)
-{
-    struct socket *dev = sock_from_file(file);
-
-    if (dev){
-        len_sock += sprintf(buffer + len_sock, "socket: State %s\n", dev->state);
-        len_sock += sprintf(buffer + len_sock, "socket: Type: %d\n", dev->type);
-        len_sock += sprintf(buffer + len_sock, "socket: Flags: %d\n\n", dev->flags);
-        if (len_sock>= 90000) return 0;
-    }
-
-    return 0;
-}
-
 
 static long device_ioctl(
         struct file *file,
@@ -91,7 +77,7 @@ static long device_ioctl(
             }
             memset(buffer, 0, BUF_LEN);
             if (vma){
-        	len_sock += sprintf(buffer + len_sock, "The beginning of the memory area: %li\n", vma->vm_end);
+        	len_sock += sprintf(buffer + len_sock, "The beginning of the memory area: %li\n", vma->vm_start);
         	len_sock += sprintf(buffer + len_sock, "The end of the memory area: %li\n", vma->vm_end);
         	len_sock += sprintf(buffer + len_sock, "Flags: %li\n", vma->vm_flags);
         	len_sock += sprintf(buffer + len_sock, "Offset (within vm_file): %li\n\n", vma->vm_pgoff);
@@ -108,36 +94,34 @@ static long device_ioctl(
         case IOCTL_GET_TASK_CPUTIME: {
 
             copy_from_user(path_arg, tmp, BUF_LEN);
-            int pid_value;
-            len_sock = 0;
+	    int pid_value;
+	    len_sock = 0;
 
-            if(kstrtoint(path_arg, 10, &pid_value) != 0)
-                 return -1;
+	    if(kstrtoint(path_arg, 10, &pid_value) != 0)
+		return -1;
 
-            struct task_struct* ts = get_pid_task(find_get_pid(pid_value), PIDTYPE_PID);
-            if(ts == NULL){
-                copy_to_user(arg, "Pid is incorrect\n", 17);
-                return 0;
-            }
-            struct thread_group_cputimer *tgc = get_running_cputimer(ts);
-            if(tgc == NULL){
-                copy_to_user(arg, "Can't get thread_group_cputimer\n", 32);
-                return 0;
-            }
-            memset(buffer, 0, BUF_LEN);
-            if (tgc){
-        	len_sock += sprintf(buffer + len_sock, "Utime: %li\n", tgc->cputime_atomic.utime);
-        	len_sock += sprintf(buffer + len_sock, "Stime: %li\n", tgc->cputime_atomic.stime);
-        	len_sock += sprintf(buffer + len_sock, "Sum. Exec. Time: %li\n\n", tgc->cputime_atomic.sum_exec_runtime);
-        	if (len_sock>= 90000) return 0;
-    	   }
+	    struct task_struct* ts = get_pid_task(find_get_pid(pid_value), PIDTYPE_PID);
+	    if(ts == NULL){
+		copy_to_user(arg, "Pid is incorrect\n", 17);
+		return 0;
+		}
+	    struct thread_group_cputimer tgc = ts->signal->cputimer;
+	    struct task_cputime_atomic tc = tgc.cputime_atomic;
+	    if(&tgc == NULL){
+		copy_to_user(arg, "Can't get thread_group_cputimer\n", 32);
+		return 0;
+		}
 
-            if(buffer[0] == NULL) len_sock = sprintf(buffer, "no vm\n");
+	memset(buffer, 0, BUF_LEN);
 
+	len_sock += sprintf(buffer + len_sock, "Utime: %li\n", tc.utime);
+	len_sock += sprintf(buffer + len_sock, "Stime: %li\n", tc.stime);
+	len_sock += sprintf(buffer + len_sock, "Sum. Exec. Time: %li\n\n", tc.sum_exec_runtime);
 
-            copy_to_user(arg, buffer, len_sock);
+	if(buffer[0] == NULL) len_sock = sprintf(buffer, "no vm\n");
 
-            break;
+	copy_to_user(arg, buffer, len_sock);
+	break;
         }
         default:
             return -ENOTTY;
